@@ -10,7 +10,7 @@ class Config:
     # 基础配置
     train_json = '/mnt/data0/liuxin/Dataset/datasets_json/Fake_Hongkong/sample.json'
     val_json = '/mnt/data0/liuxin/Dataset/datasets_json/Fake_Hongkong/sample.json'
-    save_dir = './checkpoints/phase1_baseline'
+    save_dir = './checkpoints/test'
     
     # 训练超参数
     batch_size = 32  # 注意：这是每张卡的 batch_size
@@ -29,9 +29,10 @@ def main():
 
     train_ds = MyDataset(cfg.train_json, image_size=cfg.image_size)
     val_ds = MyDataset(cfg.val_json, image_size=cfg.image_size)
+    ckpt_path = "/mnt/data0/liuxin/ForensicHub-master/ForensicHub/log/ConvNextSmall_on_OSTF_withnot/checkpoint-19.pth"
 
     # 使用预训练的 ConvNext-Small
-    model = ConvNext(pretrained=True, num_classes=1)
+    model = ConvNext(pretrained=True, num_classes=1,checkpoint_path=ckpt_path)
 
     #实例化 Trainer 并启动训练
     trainer = Trainer(

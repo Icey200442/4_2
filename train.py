@@ -44,6 +44,9 @@ class Trainer:
         self.train_sampler.set_epoch(epoch)
         self.model.train()
         total_loss = 0
+        #新加入的日志
+        total_correct = 0
+        total_samples = 0
         
         # 仅在主进程显示进度条
         if self.local_rank == 0:
@@ -57,10 +60,16 @@ class Trainer:
 
             output = self.model(images, label=labels)
             loss = output['backward_loss']
+            preds_prob = output['pred']
 
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+
+            #新加入，计算当前batch的acc
+            preds = (preds_prob > 0.5).long()
+            total_correct += (preds == labels).sum().item()
+            total_samples += labels.size(0)
 
             total_loss += loss.item()
             if self.local_rank == 0:
@@ -71,19 +80,36 @@ class Trainer:
     @torch.no_grad()
     def validate(self, epoch):
         self.model.eval()
-        val_loss = 0
+        val_loss = torch.tensor(0.0).to(self.device)
+        val_correct = torch.tensor(0).to(self.device)
+        val_total = torch.tensor(0).to(self.device)
+
         for batch in self.val_loader:
             images = batch['image'].to(self.device)
             labels = batch['label'].to(self.device)
             
             output = self.model(images, label=labels)
             val_loss += output['backward_loss'].item()
+            preds_prob = output['pred']
 
-        avg_val_loss = val_loss / len(self.val_loader)
+            batch_loss = output['backward_loss'] # 从字典里拿到 Loss
+            val_loss += batch_loss.item()        # 累加 Loss
+
+            preds = (preds_prob > 0.5).long()
+            val_correct += (preds == labels).sum()
+            val_total += labels.size(0) 
+
+        dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(val_correct, op=dist.ReduceOp.SUM)
+        dist.all_reduce(val_total, op=dist.ReduceOp.SUM)
+
+        world_size = dist.get_world_size()
+        avg_val_loss = val_loss.item() / (len(self.val_loader) * world_size)
+        avg_acc = val_correct.item() / val_total.item()
         
         # 仅在主卡打印验证信息
         if self.local_rank == 0:
-            print(f"Epoch {epoch+1} Val Loss: {avg_val_loss:.4f}")
+            print(f"✨ Epoch {epoch+1} 验证完成 | Loss: {avg_val_loss:.4f} | Accuracy: {100 * avg_acc:.2f}%")
         return avg_val_loss
 
     def fit(self):
